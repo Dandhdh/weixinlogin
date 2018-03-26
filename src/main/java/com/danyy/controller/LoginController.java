@@ -1,7 +1,6 @@
 package com.danyy.controller;
 
-import com.danyy.util.AESUtil;
-import com.danyy.util.AuthUtil;
+import com.danyy.util.*;
 import net.sf.json.JSONObject;
 
 import org.slf4j.Logger;
@@ -19,8 +18,11 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.net.URL;
 import java.net.URLEncoder;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 
 @Controller
 @RequestMapping("/Weixin")
@@ -33,6 +35,8 @@ public class LoginController {
     private String secret;
     @Value("${weixin.login}")
     private String weixinLogin;
+
+    private static String accesstoken ;
 
     //请求code接口，将响应直接返回给客户端，客户端会变成授权页面
     private String weixinUrl = "https://open.weixin.qq.com/connect/oauth2/authorize?"
@@ -53,6 +57,7 @@ public class LoginController {
 
         req.setCharacterEncoding("UTF-8");
         resp.setCharacterEncoding("UTF-8");
+        System.out.println("auth.do");
 
         //回调地址
         String callBack = "http://17656f9g43.iok.la/Weixin/wx.do";
@@ -61,25 +66,13 @@ public class LoginController {
         String url = "https://open.weixin.qq.com/connect/oauth2/authorize?" +
                 "appid="+appid +
                 "&redirect_uri="+callBack +
-                "&response_type=snsapi_userinfo " +
+                "&response_type=snsapi_userinfo"+
                 "&scope=snsapi_userinfo" +
-                "&state=STATE#wechat_redirect ";
+                "&state=STATE#wechat_redirect";
+
 
         //通过连接重定向请求code，即授权
         resp.sendRedirect(url);
-
-//        JSONObject result = AuthUtil.doGet(url);
-//        System.out.println("result:"+result);
-//
-//        String access_token = result.getString("access_token");
-//        String expires_in = result.getString("expires_in");
-//        String openid = result.getString("openid");
-//        String refresh_token = result.getString("refresh_token");
-//        System.out.println("access_token："+access_token);
-//        System.out.println("expires_in："+expires_in);
-//        System.out.println("openid："+openid);
-//        System.out.println("refresh_token："+refresh_token);
-
     }
 
 
@@ -92,8 +85,8 @@ public class LoginController {
     @RequestMapping("/wx.do")
     public void getCode(HttpServletRequest request,HttpServletResponse response) throws IOException {
 
+        System.out.println("wx.do");
         String code = request.getParameter("code");
-        System.out.println(code);
         String url = "https://api.weixin.qq.com/sns/oauth2/access_token?"
                 + "appid="+appid
                 + "&secret="+secret
@@ -116,13 +109,84 @@ public class LoginController {
             String value = result.getString(key);
             System.out.println(key+" : "+value);
         }
-        response.setHeader("token", "header");
-        response.sendRedirect("/userInfo.do");
-        //response.sendRedirect("www.baidu.com");
 
+        response.setHeader("access_token",(String)result.get("access_token"));
+        response.setHeader("openid",(String) result.get("openid"));
+        accesstoken = (String)result.get("access_token");
+        //redirect(request,response,null);
     }
 
 
+    //3.获取用户信息
+    @RequestMapping("/userInfo.do")
+    public void getUserInfo(HttpServletRequest request,HttpServletResponse response) throws IOException {
+
+        System.out.println("/userInfo");
+
+        String access_token = request.getHeader("access_token");
+        //String openid = request.getHeader("openid");
+
+        System.out.println(access_token);
+        System.out.println(accesstoken);
+        access_token = accesstoken;
+
+//        String access_token = "8_YG75sevIRc8LEZY6VvVyXcuTDWDIGcXUsj00D7sjACkw30qM9B4c2KzFUkJHJhfMpGv8McBfYDdphU_0FdutcAqWvuGxhx9OaVaiDC7ouH-AkFuBazd5T_SedYINKFjAIAFCX";
+//        String openid = "oz1_Y09DZhbnveqAAvFUoeYBhKzw";
+
+        String url = "https://api.weixin.qq.com/sns/userinfo?"
+                + "access_token="+access_token
+                + "&openid=oz1_Y09DZhbnveqAAvFUoeYBhKzw"
+                + "&lang=zh_CN";
+
+        //response.sendRedirect(url);
+        //JSONObject result = AuthUtil.doGet(url);
+        JSONObject result = CommonUtil.httpsRequest(url,"GET",null);
+        System.out.println("result:"+result);
+
+        /*
+         * 遍历JSONObject
+         */
+        Iterator<String> keys = result.keys();
+        while (keys.hasNext()) {
+            String key = (String) keys.next();
+            String value = result.getString(key);
+            System.out.println(key+" : "+value);
+        }
+    }
+
+    //获取全局token
+    @RequestMapping("/token.do")
+    public void token(HttpServletRequest request,HttpServletResponse response, String redirect) throws IOException {
+
+        String url = "https://api.weixin.qq.com/cgi-bin/token?" +
+                "grant_type=client_credential" +
+                "&appid=" +appid+
+                "&secret="+secret;
+
+        JSONObject result = AuthUtil.doGet(url);
+
+        System.out.println("全局token："+result.get("access_token"));
+        System.out.println("有效时间（s）："+result.get("expires_in"));
+    }
+
+
+    //4.刷新token
+    @RequestMapping("/refreshToken.do")
+    public void refresh_token(HttpServletRequest request,HttpServletResponse response, String redirect) throws IOException {
+        //填写通过access_token获取到的refresh_token参数
+        String REFRESH_TOKEN = "8_WIH3jOCVVtqtkU4_OFB-Oul-ahlMdzKgaEy9RIBI0N7KpjQFExW0CkRZb_x95BloxE99JOTfi1_wSQUV-FJfYXXFysWGk2bJsnQnwGITlDQ";
+        String url = "https://api.weixin.qq.com/sns/oauth2/refresh_token?" +
+                "appid=" +appid+
+                "&grant_type=refresh_token" +
+                "&refresh_token="+REFRESH_TOKEN;
+
+        JSONObject result = AuthUtil.doGet(url);
+
+        System.out.println("新的token："+result.get("access_token"));
+        System.out.println("有效时间（s）："+result.get("expires_in"));
+        System.out.println("刷新refresh_token："+result.get("refresh_token"));
+        System.out.println("用户唯一标识："+result.get("openid"));
+    }
 
     @RequestMapping("/login.do")
     public void login(HttpServletRequest request,HttpServletResponse response, String redirect) throws IOException {
@@ -162,22 +226,22 @@ public class LoginController {
     }
 
 
-//    @RequestMapping("/auth.do")
-//    public void auth(HttpServletRequest request,HttpServletResponse response) throws IOException {
-//    	String authorization = "https://open.weixin.qq.com/connect/oauth2/authorize?"
-//    			+ "appid=wx633e4285fbacd3df&"
-//    			+ "redirect_uri=http://17656f9g43.iok.la/Weixin/wx.do&"
-//    			+ "response_type=code&"
-//    			+ "scope=snsapi_base&"
-//    			+ "state=ok#wechat_redirect";
-//    	//response.sendRedirect(authorization);
-//    	/*
-//    	 * snsapi_base 不需要用户点同意，直接跳转到授权后的页面，只能用于获取openid，不能获取用户基本信息
-//           snsapi_userinfo 会征求用户同意，授权后，可以获取用户基本信息
-//    	 */
-//    	JSONObject result = AuthUtil.doGet(authorization);
-//        System.out.println(result);
-//    }
+    @RequestMapping("/aauth.do")
+    public void aauth(HttpServletRequest request,HttpServletResponse response) throws IOException {
+    	String authorization = "https://open.weixin.qq.com/connect/oauth2/authorize?"
+    			+ "appid=wx633e4285fbacd3df&"
+    			+ "redirect_uri=http://17656f9g43.iok.la/Weixin/wx.do&"
+    			+ "response_type=code&"
+    			+ "scope=snsapi_base&"
+    			+ "state=ok#wechat_redirect";
+    	//response.sendRedirect(authorization);
+    	/*
+    	 * snsapi_base 不需要用户点同意，直接跳转到授权后的页面，只能用于获取openid，不能获取用户基本信息
+           snsapi_userinfo 会征求用户同意，授权后，可以获取用户基本信息
+    	 */
+    	JSONObject result = AuthUtil.doGet(authorization);
+        System.out.println(result);
+    }
   
 
     @RequestMapping("/redirect.do")
@@ -204,34 +268,4 @@ public class LoginController {
         response.sendRedirect(sb.toString());
     }
 
-
-    
-    //获取用户信息
-    @RequestMapping("/userInfo.do")
-    public void getUserInfo(HttpServletRequest request,HttpServletResponse response) throws IOException {
-    	String ACCESS_TOKEN = "4_bykbgZeHfIwQjpUGguyq0fHxM_0BnkWwPvbSrt2jkBgCXoZ28XQoU41MmfFeaZ9ZRIFo5mBuLNlO4MNzYoh_fsJqaGSAG03bNXLDAwpERXw";
-    	String openId = "oz1_Y0-2CbxMKFXo3eRlVwV66kuk";
-    	
-    	System.out.println(request.getParameter("token"));
-    	
-    	System.out.println(request.getAttribute("token"));
-        String url = "https://api.weixin.qq.com/sns/userinfo?"
-        		+ "access_token="+ACCESS_TOKEN
-        		+ "&openid="+openId
-        		+ "&lang=zh_CN ";
-        
-        //response.sendRedirect(url);
-        JSONObject result = AuthUtil.doGet(url);
-        System.out.println("result:"+result);
-        
-        /*
-         * 遍历JSONObject
-         */
-        Iterator<String> keys = result.keys();  
-        while (keys.hasNext()) {  
-        	String key = (String) keys.next();
-            String value = result.getString(key);  
-            System.out.println(key+" : "+value);
-        } 
-    }
 }
